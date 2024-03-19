@@ -68,6 +68,16 @@ impl FileManager {
         Ok(docker_file_path)
     }
 
+    pub fn possible_names(&self, version: &str) -> Vec<Vec<String>> {
+        vec![
+            vec![format!("libc-{}.so", version), "libc.so.6".to_string()],
+            vec![
+                format!("ld-{}.so", version),
+                "ld-linux-x86-64.so.2".to_string(),
+            ],
+        ]
+    }
+
     pub fn copy_to(&self, version: &str, dest: &PathBuf) -> InternalResult<()> {
         if !dest.exists() {
             Err(InternalError::IOError(format!(
@@ -78,16 +88,34 @@ impl FileManager {
 
         let glibc_dir = self.get_glibc_dir(version);
 
-        for lib_name in vec![
-            &format!("libc-{}.so", version),
-            &format!("ld-{}.so", version),
-        ] {
-            let mut src_path = glibc_dir.clone();
-            src_path.push(lib_name);
-            let mut dest_path = dest.clone();
-            dest_path.push(lib_name);
+        for lib_names in &self.possible_names(version) {
+            let default_name = lib_names.first().unwrap();
+            let mut found = false;
+            for name in lib_names {
+                let mut src_path = glibc_dir.clone();
+                src_path.push("lib");
+                src_path.push(name);
+                if src_path.exists() {
+                    let mut dest_path = dest.clone();
+                    dest_path.push(default_name);
 
-            copy(src_path, &dest_path)?;
+                    copy(src_path, &dest_path)?;
+
+                    LogSystem::log(format!(
+                        "Copied {} to the designated directory.",
+                        default_name
+                    ));
+
+                    found = true;
+                    break;
+                }
+            }
+            if !found {
+                Err(InternalError::Common(format!(
+                    "Failed to find {}.",
+                    default_name
+                )))?;
+            }
         }
 
         Ok(())

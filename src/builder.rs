@@ -195,7 +195,7 @@ impl GLibCBuilder {
         LogSystem::log(format!("Extracted the source of glibc {}.", version));
 
         exec_com_inside!(
-            "bash", "-c", format!("../glibc-{}/configure --prefix=/build/out CC=\"gcc -m64\" CXX=\"g++ -m64\"", version);
+            "bash", "-c", format!("../glibc-{}/configure --disable-werror --prefix=/build/out CC=\"gcc -m64\" CXX=\"g++ -m64\"", version);
             &self.container_name, "/build/dest";
             "Failed to configure the glibc.".to_string()
         );
