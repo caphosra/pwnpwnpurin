@@ -80,7 +80,11 @@ impl GLibCBuilder {
         Ok(())
     }
 
-    pub async fn build_docker_image(&self, rebuild_image: bool) -> InternalResult<()> {
+    pub async fn build_docker_image(
+        &self,
+        rebuild_image: bool,
+        file_manager: &FileManager,
+    ) -> InternalResult<()> {
         let output = exec_com!(
             "docker", "images", "-q", &self.image_name;
             "Failed to figure out whether an image exists or not.".to_string()
@@ -105,13 +109,21 @@ impl GLibCBuilder {
 
         LogSystem::log(format!("An image named {} is not found.", self.image_name));
 
+        let docker_file_path = file_manager.create_docker_file()?;
+        let docker_dir = docker_file_path.parent().ok_or(InternalError::Common(
+            "Failed to get the directory of docker file path.".to_string(),
+        ))?;
+        let docker_dir_str = docker_dir.to_str().ok_or(InternalError::Common(
+            "Failed to parse the docker file path.".to_string(),
+        ))?;
+
         LogSystem::log(format!(
             "Building {}. It may take a long time.",
             self.image_name
         ));
 
         exec_com!(
-            "docker", "build", ".", "-t", &self.image_name, "-f", "purin.dockerfile";
+            "docker", "build", docker_dir_str, "--tag", &self.image_name;
             "Failed to build an image.".to_string()
         );
 

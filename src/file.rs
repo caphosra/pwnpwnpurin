@@ -1,9 +1,12 @@
 use home::home_dir;
-use std::fs::{copy, create_dir_all, read_dir, remove_dir_all};
+use std::fs::{copy, create_dir_all, remove_dir_all, File};
+use std::io::Write;
 use std::path::PathBuf;
 
 use crate::error::{InternalError, InternalResult};
 use crate::log::LogSystem;
+
+include!(concat!(env!("OUT_DIR"), "/docker_file.rs"));
 
 pub struct FileManager {
     config_dir: PathBuf,
@@ -26,46 +29,43 @@ impl FileManager {
         })
     }
 
-    pub fn get_glibc_name(&self, version: &str) -> String {
-        format!("glibc-{}.so", version)
+    pub fn get_glibc_dir(&self, version: &str) -> PathBuf {
+        let mut glibc_dir = self.config_dir.clone();
+        glibc_dir.push(format!("glibc-{}", version));
+        glibc_dir
+    }
+
+    pub fn create_glibc_dir(&self, version: &str) -> InternalResult<()> {
+        let glibc_dir = self.get_glibc_dir(version);
+        create_dir_all(&glibc_dir)?;
+        Ok(())
+    }
+
+    pub fn clean_glibc_dir(&self, version: &str) -> InternalResult<()> {
+        let glibc_dir = self.get_glibc_dir(version);
+        remove_dir_all(glibc_dir)?;
+        Ok(())
     }
 
     pub fn exists(&self, version: &str) -> bool {
-        self.get_glibc_path(version).exists()
+        self.get_glibc_dir(version).exists()
     }
 
-    pub fn get_glibc_path(&self, version: &str) -> PathBuf {
-        let mut target = self.config_dir.clone();
-        target.push(self.get_glibc_name(version));
-
-        target
+    pub fn get_docker_file_path(&self) -> PathBuf {
+        let mut docker_file_path = self.config_dir.clone();
+        docker_file_path.push("Dockerfile");
+        docker_file_path
     }
 
-    pub fn get_build_dir(&self) -> PathBuf {
-        let mut build_dir = self.config_dir.clone();
-        build_dir.push("build");
-        build_dir
-    }
+    pub fn create_docker_file(&self) -> InternalResult<PathBuf> {
+        let docker_file_path = self.get_docker_file_path();
+        if !docker_file_path.exists() {
+            let mut source = File::create(&docker_file_path)?;
+            source.write_all(DOCKER_FILE.as_bytes())?;
 
-    pub fn init_build_dir(&self) -> InternalResult<PathBuf> {
-        let build_dir = self.get_build_dir();
-        if build_dir.exists() {
-            remove_dir_all(&build_dir)?;
-            LogSystem::log("Deleted artifacts in the build dir.".to_string())
+            LogSystem::log("Created a docker file.".to_string());
         }
-        create_dir_all(&build_dir)?;
-        LogSystem::log("Created a new build dir.".to_string());
-
-        Ok(build_dir)
-    }
-
-    pub fn get_glibc_list(&self) -> InternalResult<Vec<String>> {
-        let mut glibc_list = Vec::new();
-        for entry in read_dir(&self.config_dir)? {
-            let dir_entry = entry?;
-            dir_entry.file_type()?;
-        }
-        Ok(glibc_list)
+        Ok(docker_file_path)
     }
 
     pub fn copy_to(&self, version: &str, dest: &PathBuf) -> InternalResult<()> {
@@ -76,18 +76,19 @@ impl FileManager {
             )))?
         }
 
-        let lib = self.get_glibc_path(&version);
-        if !lib.exists() {
-            Err(InternalError::IOError(format!(
-                "A binary of glibc {} does not exist.",
-                version
-            )))?
+        let glibc_dir = self.get_glibc_dir(version);
+
+        for lib_name in vec![
+            &format!("libc-{}.so", version),
+            &format!("ld-{}.so", version),
+        ] {
+            let mut src_path = glibc_dir.clone();
+            src_path.push(lib_name);
+            let mut dest_path = dest.clone();
+            dest_path.push(lib_name);
+
+            copy(src_path, &dest_path)?;
         }
-
-        let mut dest = dest.clone();
-        dest.push(self.get_glibc_name(version));
-
-        copy(lib, dest)?;
 
         Ok(())
     }
