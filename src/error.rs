@@ -1,5 +1,6 @@
 pub enum InternalError {
     Common(String),
+    Multiple(Box<InternalError>, Box<InternalError>),
     NetworkError(String),
     IOError(String),
 }
@@ -20,6 +21,9 @@ impl ToString for InternalError {
     fn to_string(&self) -> String {
         match self {
             InternalError::Common(err) => err.clone(),
+            InternalError::Multiple(err1, err2) => {
+                format!("{}\n{}", err1.to_string(), err2.to_string())
+            }
             InternalError::NetworkError(err) => format!("Network error: {}", err),
             InternalError::IOError(err) => format!("IO error: {}", err),
         }

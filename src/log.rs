@@ -10,6 +10,7 @@ pub struct LogSystem;
 
 pub enum LogType {
     Log,
+    Subprocess,
     Success,
     Warn,
     Err,
@@ -18,6 +19,10 @@ pub enum LogType {
 impl LogSystem {
     pub fn log(text: String) {
         LogSystem::writeln(LogType::Log, text)
+    }
+
+    pub fn subprocess(text: String) {
+        LogSystem::writeln(LogType::Subprocess, text)
     }
 
     pub fn success(text: String) {
@@ -59,6 +64,7 @@ impl LogType {
     pub fn color(&self) -> Option<Color> {
         match self {
             LogType::Log => None,
+            LogType::Subprocess => Some(Color::Rgb(100, 100, 100)),
             LogType::Success => Some(Color::Green),
             LogType::Warn => Some(Color::Yellow),
             LogType::Err => Some(Color::Red),
