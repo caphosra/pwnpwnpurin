@@ -1,22 +1,54 @@
+use std::process::Stdio;
+
+use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
-use tokio::io::{BufReader, AsyncBufReadExt};
 
-use crate::log::LogSystem;
 use crate::error::{InternalError, InternalResult};
+use crate::log::LogSystem;
 
-pub async fn execute_command<F>(program: &str, command_fn: F) -> InternalResult<()> where F: FnOnce(&mut Command) -> &mut Command {
+pub async fn execute_command<F>(program: &str, command_fn: F) -> InternalResult<Vec<String>>
+where
+    F: FnOnce(&mut Command) -> &mut Command,
+{
     let mut command = Command::new(program);
-    let mut child = command_fn(&mut command).spawn()?;
+    let mut command_with_pipe = command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command_fn(&mut command_with_pipe).spawn()?;
     let stdout = child.stdout.take().ok_or(InternalError::Common(
         "Failed to capture stdout.".to_string(),
     ))?;
+    let stderr = child.stderr.take().ok_or(InternalError::Common(
+        "Failed to capture stderr.".to_string(),
+    ))?;
 
+    let mut lines = Vec::new();
     let mut stdout_reader = BufReader::new(stdout).lines();
     while let Some(line) = stdout_reader.next_line().await? {
-        LogSystem::log(format!(">> {}", line))
+        LogSystem::subprocess(format!(">> {}", line));
+        lines.push(line);
+    }
+
+    let mut stderr_reader = BufReader::new(stderr).lines();
+    while let Some(line) = stderr_reader.next_line().await? {
+        LogSystem::warn(format!(">> {}", line));
     }
 
     child.wait().await?;
 
-    Ok(())
+    Ok(lines)
+}
+
+#[macro_export]
+macro_rules! exec_com {
+    ($program: expr, $($arg: expr),*; $err: expr) => {{
+        crate::utils::execute_command($program, |command| {
+            command $(.arg($arg))*
+        })
+        .await
+        .map_err(|err| {
+            crate::error::InternalError::Multiple(
+                Box::new(crate::error::InternalError::Common($err)),
+                Box::new(err)
+            )
+        })?
+    }};
 }
