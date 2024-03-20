@@ -1,6 +1,6 @@
 use home::home_dir;
 use regex::Regex;
-use std::fs::{copy, create_dir_all, read_dir, remove_dir_all, File};
+use std::fs::{copy, create_dir_all, read_dir, read_link, remove_dir_all, File};
 use std::io::Write;
 use std::path::PathBuf;
 
@@ -36,8 +36,7 @@ impl FileManager {
         if self.config_dir.exists() {
             remove_dir_all(&self.config_dir)?;
             Ok(())
-        }
-        else {
+        } else {
             Err(InternalError::Common("Already cleaned.".to_string()))
         }
     }
@@ -115,17 +114,16 @@ impl FileManager {
         Ok(docker_file_path)
     }
 
-    pub fn possible_names(&self, version: &str) -> Vec<Vec<String>> {
-        vec![
-            vec![format!("libc-{}.so", version), "libc.so.6".to_string()],
-            vec![
-                format!("ld-{}.so", version),
-                "ld-linux-x86-64.so.2".to_string(),
-            ],
-        ]
+    pub fn get_default_lib_list(&self) -> Vec<&'static str> {
+        vec!["libc.so.6", "ld-linux-x86-64.so.2"]
     }
 
-    pub fn copy_to(&self, version: &str, dest: &PathBuf) -> InternalResult<()> {
+    pub fn copy_to(
+        &self,
+        version: &str,
+        dest: &PathBuf,
+        lib: &mut Vec<&str>,
+    ) -> InternalResult<()> {
         if !dest.exists() {
             Err(InternalError::IOError(format!(
                 "A destination of the binary of glibc {} does not exist.",
@@ -135,32 +133,44 @@ impl FileManager {
 
         let glibc_dir = self.get_glibc_dir(version);
 
-        for lib_names in &self.possible_names(version) {
-            let default_name = lib_names.first().unwrap();
-            let mut found = false;
-            for name in lib_names {
-                let mut src_path = glibc_dir.clone();
+        let mut lib_list = self.get_default_lib_list();
+        lib_list.append(lib);
+
+        for lib_name in lib_list {
+            let mut src_path = glibc_dir.clone();
+            src_path.push("lib");
+            src_path.push(lib_name);
+
+            if src_path.is_symlink() {
+                let link = read_link(&src_path)?;
+                let link_name = link
+                    .file_name()
+                    .ok_or(InternalError::Common(format!(
+                        "Failed to get the destination of {}",
+                        src_path.display()
+                    )))?
+                    .to_str()
+                    .ok_or(InternalError::Common(
+                        "The path is not valid in Unicode.".to_string(),
+                    ))?;
+
+                LogSystem::log(format!("{} is a symlink to {}.", lib_name, link_name));
+
+                src_path = glibc_dir.clone();
                 src_path.push("lib");
-                src_path.push(name);
-                if src_path.exists() {
-                    let mut dest_path = dest.clone();
-                    dest_path.push(default_name);
-
-                    copy(src_path, &dest_path)?;
-
-                    LogSystem::log(format!(
-                        "Copied {} to the designated directory.",
-                        default_name
-                    ));
-
-                    found = true;
-                    break;
-                }
+                src_path.push(link_name);
             }
-            if !found {
+            if src_path.is_file() {
+                let mut dest_path = dest.clone();
+                dest_path.push(lib_name);
+
+                copy(src_path, &dest_path)?;
+
+                LogSystem::log(format!("Copied {} to the designated directory.", lib_name));
+            } else {
                 Err(InternalError::Common(format!(
                     "Failed to find {}.",
-                    default_name
+                    lib_name
                 )))?;
             }
         }

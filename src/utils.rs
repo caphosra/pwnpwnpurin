@@ -34,9 +34,12 @@ where
 
     let status = child.wait().await?;
     if !status.success() {
-        Err(InternalError::Common(format!("The program \"{}\" finished with a status {}.", program, status.to_string())))
-    }
-    else {
+        Err(InternalError::Common(format!(
+            "The program \"{}\" finished with a status {}.",
+            program,
+            status.to_string()
+        )))
+    } else {
         Ok(lines)
     }
 }

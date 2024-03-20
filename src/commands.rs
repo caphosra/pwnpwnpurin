@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 
 use std::env::current_dir;
 
@@ -40,6 +40,8 @@ pub enum PurinSubCommand {
         force: bool,
         #[arg(long, help = "Force purin to rebuild the image.")]
         rebuild_image: bool,
+        #[arg(short, long, action = ArgAction::Append, help = "Install glibc libraries other than `lib.so.6` and `ld-linux-x86-64.so.2`.")]
+        lib: Option<Vec<String>>,
     },
     #[command(about = "List all pre-built glibc.")]
     List,
@@ -68,7 +70,19 @@ impl CommandExec {
                 version,
                 force,
                 rebuild_image,
-            } => self.exec_install(version, *force, *rebuild_image).await,
+                lib,
+            } => {
+                let mut cloned_lib = lib.clone();
+                let mut empty = Vec::new();
+                let mut lib = cloned_lib
+                    .as_mut()
+                    .unwrap_or(&mut empty)
+                    .iter()
+                    .map(|l| l.as_str())
+                    .collect::<Vec<_>>();
+                self.exec_install(version, *force, *rebuild_image, &mut lib)
+                    .await
+            }
             PurinSubCommand::List => self.exec_list().await,
         }
     }
@@ -106,8 +120,7 @@ impl CommandExec {
             self.file_manager.clean_glibc_dir(version)?;
 
             LogSystem::log("Deleted cached libraries.".to_string());
-        }
-        else {
+        } else {
             LogSystem::err(format!("Glibc {} is not found.", version));
         }
 
@@ -127,11 +140,12 @@ impl CommandExec {
         version: &str,
         force: bool,
         rebuild_image: bool,
+        lib: &mut Vec<&str>,
     ) -> InternalResult<()> {
         self.exec_build(version, force, rebuild_image).await?;
 
         let dest_dir = current_dir()?;
-        self.file_manager.copy_to(&version, &dest_dir)?;
+        self.file_manager.copy_to(&version, &dest_dir, lib)?;
 
         LogSystem::success("Installed glibc to the directory.".to_string());
 
