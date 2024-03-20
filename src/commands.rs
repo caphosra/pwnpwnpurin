@@ -26,7 +26,7 @@ pub enum PurinSubCommand {
         rebuild_image: bool,
     },
     #[command(about = "Put the specified glibc to the current directory.")]
-    Pick {
+    Install {
         #[arg(help = "A version of glibc.")]
         version: String,
         #[arg(short, long, action)]
@@ -55,11 +55,11 @@ impl CommandExec {
                 force,
                 rebuild_image,
             } => self.exec_build(version, *force, *rebuild_image).await,
-            PurinSubCommand::Pick {
+            PurinSubCommand::Install {
                 version,
                 force,
                 rebuild_image,
-            } => self.exec_pick(version, *force, *rebuild_image).await,
+            } => self.exec_install(version, *force, *rebuild_image).await,
             PurinSubCommand::List => self.exec_list().await,
         }
     }
@@ -92,7 +92,7 @@ impl CommandExec {
         Ok(())
     }
 
-    pub async fn exec_pick(
+    pub async fn exec_install(
         &self,
         version: &str,
         force: bool,
