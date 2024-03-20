@@ -25,16 +25,23 @@ pub enum PurinSubCommand {
         #[arg(long, help = "Force purin to rebuild the image.")]
         rebuild_image: bool,
     },
-    #[command(about = "Put the specified glibc to the current directory.")]
+    #[command(about = "Remove glibc from the cache.")]
+    Rm {
+        #[arg(help = "A version of glibc.")]
+        version: String,
+    },
+    #[command(about = "Delete all caches and configurations.")]
+    Clean,
+    #[command(about = "Install the specified glibc to the current directory.")]
     Install {
         #[arg(help = "A version of glibc.")]
         version: String,
-        #[arg(short, long, action)]
+        #[arg(short, long, help = "Force purin to rebuild glibc.")]
         force: bool,
         #[arg(long, help = "Force purin to rebuild the image.")]
         rebuild_image: bool,
     },
-    #[command(about = "List all prebuilt glibc.")]
+    #[command(about = "List all pre-built glibc.")]
     List,
 }
 
@@ -55,6 +62,8 @@ impl CommandExec {
                 force,
                 rebuild_image,
             } => self.exec_build(version, *force, *rebuild_image).await,
+            PurinSubCommand::Rm { version } => self.exec_rm(version).await,
+            PurinSubCommand::Clean => self.exec_clean().await,
             PurinSubCommand::Install {
                 version,
                 force,
@@ -92,6 +101,27 @@ impl CommandExec {
         Ok(())
     }
 
+    pub async fn exec_rm(&self, version: &str) -> InternalResult<()> {
+        if self.file_manager.exists(version) {
+            self.file_manager.clean_glibc_dir(version)?;
+
+            LogSystem::log("Deleted cached libraries.".to_string());
+        }
+        else {
+            LogSystem::err(format!("Glibc {} is not found.", version));
+        }
+
+        Ok(())
+    }
+
+    pub async fn exec_clean(&self) -> InternalResult<()> {
+        self.file_manager.clean()?;
+
+        LogSystem::log("Deleted all cached libraries.".to_string());
+
+        Ok(())
+    }
+
     pub async fn exec_install(
         &self,
         version: &str,
@@ -109,6 +139,10 @@ impl CommandExec {
     }
 
     pub async fn exec_list(&self) -> InternalResult<()> {
+        let versions = self.file_manager.get_glibc_list()?;
+        for version in versions {
+            LogSystem::log(format!("glibc-{}", version));
+        }
         Ok(())
     }
 }
