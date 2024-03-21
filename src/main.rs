@@ -8,6 +8,7 @@ mod commands;
 mod error;
 mod file;
 mod log;
+mod patching;
 mod utils;
 
 #[tokio::main]

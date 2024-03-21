@@ -1,12 +1,17 @@
 use clap::{ArgAction, Parser, Subcommand};
 
 use std::env::current_dir;
+use std::fs::canonicalize;
+use std::path::PathBuf;
+use std::str::FromStr;
 
 use crate::builder::GLibCBuilder;
 
-use crate::error::InternalResult;
+use crate::error::{InternalError, InternalResult};
 use crate::file::FileManager;
 use crate::log::LogSystem;
+use crate::patching::Patching;
+use crate::utils::TryToStr;
 
 #[derive(Debug, Parser)]
 pub struct PurinArgs {
@@ -40,11 +45,30 @@ pub enum PurinSubCommand {
         force: bool,
         #[arg(long, help = "Force purin to rebuild the image.")]
         rebuild_image: bool,
+        #[arg(
+            short,
+            long,
+            help = "A directory to install libraries. The current directory is chosen by default."
+        )]
+        dir: Option<String>,
         #[arg(short, long, action = ArgAction::Append, help = "Install glibc libraries other than `lib.so.6` and `ld-linux-x86-64.so.2`.")]
         lib: Option<Vec<String>>,
     },
     #[command(about = "List all pre-built glibc.")]
     List,
+    #[command(about = "Patch the executable with designated glibc.")]
+    Patch {
+        #[arg(help = "A version of glibc.")]
+        version: String,
+        #[arg(help = "An executable file to be patched.")]
+        executable: String,
+        #[arg(short, long, help = "Force purin to rebuild glibc.")]
+        force: bool,
+        #[arg(long, help = "Force purin to rebuild the image.")]
+        rebuild_image: bool,
+        #[arg(short, long, action = ArgAction::Append, help = "Install glibc libraries other than `lib.so.6` and `ld-linux-x86-64.so.2`.")]
+        lib: Option<Vec<String>>,
+    },
 }
 
 pub struct CommandExec {
@@ -70,20 +94,33 @@ impl CommandExec {
                 version,
                 force,
                 rebuild_image,
+                dir,
                 lib,
             } => {
-                let mut cloned_lib = lib.clone();
-                let mut empty = Vec::new();
-                let mut lib = cloned_lib
-                    .as_mut()
-                    .unwrap_or(&mut empty)
+                let lib = lib.clone().unwrap_or(Vec::new());
+                let mut lib = lib
                     .iter()
-                    .map(|l| l.as_str())
+                    .map(|lib_name| lib_name.as_str())
                     .collect::<Vec<_>>();
-                self.exec_install(version, *force, *rebuild_image, &mut lib)
+                self.exec_install(version, *force, *rebuild_image, dir.as_deref(), &mut lib)
                     .await
             }
             PurinSubCommand::List => self.exec_list().await,
+            PurinSubCommand::Patch {
+                version,
+                executable,
+                force,
+                rebuild_image,
+                lib,
+            } => {
+                let lib = lib.clone().unwrap_or(Vec::new());
+                let mut lib = lib
+                    .iter()
+                    .map(|lib_name| lib_name.as_str())
+                    .collect::<Vec<_>>();
+                self.exec_patch(version, executable, *force, *rebuild_image, &mut lib)
+                    .await
+            }
         }
     }
 
@@ -140,14 +177,31 @@ impl CommandExec {
         version: &str,
         force: bool,
         rebuild_image: bool,
+        dir: Option<&str>,
         lib: &mut Vec<&str>,
     ) -> InternalResult<()> {
         self.exec_build(version, force, rebuild_image).await?;
 
-        let dest_dir = current_dir()?;
+        let dest_dir = if let Some(dir) = dir {
+            let dest_dir = PathBuf::from_str(dir).map_err(|_| {
+                InternalError::Common(format!("Failed to interpret \"{}\" as a directory.", dir))
+            })?;
+            if !dest_dir.is_dir() {
+                Err(InternalError::Common(format!(
+                    "The directory \"{}\" does not exist.",
+                    dir
+                )))?;
+            }
+            canonicalize(dest_dir)?
+        } else {
+            current_dir()?
+        };
         self.file_manager.copy_to(&version, &dest_dir, lib)?;
 
-        LogSystem::success("Installed glibc to the directory.".to_string());
+        LogSystem::success(format!(
+            "Installed glibc to {}.",
+            dest_dir.as_path().try_to_str()?
+        ));
 
         Ok(())
     }
@@ -158,5 +212,40 @@ impl CommandExec {
             LogSystem::log(format!("glibc-{}", version));
         }
         Ok(())
+    }
+
+    pub async fn exec_patch(
+        &self,
+        version: &str,
+        executable: &str,
+        force: bool,
+        rebuild_image: bool,
+        lib: &mut Vec<&str>,
+    ) -> InternalResult<()> {
+        let exec_path = PathBuf::from_str(executable).map_err(|_| {
+            InternalError::Common(format!("Failed to interpret \"{}\" as a path.", executable))
+        })?;
+        let exec_path = canonicalize(exec_path)?;
+        if exec_path.is_file() && !exec_path.is_symlink() {
+            let parent = exec_path.parent().ok_or(InternalError::Common(format!(
+                "Failed to get the parent of \"{}\".",
+                executable
+            )))?;
+            let parent_str = parent.try_to_str()?;
+            self.exec_install(version, force, rebuild_image, Some(parent_str), lib)
+                .await?;
+
+            let patcher = Patching::new();
+            patcher.patch(parent, &exec_path).await?;
+
+            LogSystem::log(format!("Patched {} with glibc {}.", executable, version));
+
+            Ok(())
+        } else {
+            Err(InternalError::Common(format!(
+                "\"{}\" is not a file.",
+                executable
+            )))
+        }
     }
 }

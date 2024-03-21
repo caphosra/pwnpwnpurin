@@ -6,7 +6,10 @@ This tool is mainly designed to patch an executable when glibc on a server is ol
 
 ## Requirement
 
-This tool depends on `Docker`. Please make sure it is installed.
+Please make sure those tools are installed.
+
+- `docker`
+- `patchelf` (Optional but necessary for `purin patch`)
 
 ## Installation
 
@@ -24,3 +27,10 @@ purin install [VERSION]
 ```
 
 It can take a long time for the first time. Once installed, it would be much faster, thanks to caches.
+
+If you have installed `patchelf`, you can patch an executable by just executing one command. (ex. `purin patch 2.35 ./chall`)
+```
+purin patch [VERSION] [EXECUTABLE]
+```
+
+If you need some GNU C libraries other than `lib.so.6` and `ld-linux-x86-64.so.2`, use `--lib [LIB]` options. (ex. `purin install 2.34 --lib libdl.so.2 --lib libnsl.so.1`)
