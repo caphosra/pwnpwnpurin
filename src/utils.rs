@@ -1,4 +1,5 @@
 use std::process::Stdio;
+use std::path::Path;
 
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
@@ -58,4 +59,14 @@ macro_rules! exec_com {
             )
         })?
     }};
+}
+
+pub trait TryToStr<'a> {
+    fn try_to_str(&'a self) -> InternalResult<&'a str>;
+}
+
+impl<'a> TryToStr<'a> for Path {
+    fn try_to_str(&'a self) -> InternalResult<&'a str> {
+        self.to_str().ok_or(InternalError::Common(format!("Failed to interpret \"{}\" as a path.", self.display())))
+    }
 }

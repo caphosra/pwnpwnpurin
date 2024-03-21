@@ -6,6 +6,7 @@ use crate::error::{InternalError, InternalResult};
 use crate::exec_com;
 use crate::file::FileManager;
 use crate::log::LogSystem;
+use crate::utils::TryToStr;
 
 pub struct GLibCBuilder {
     image_name: String,
@@ -109,21 +110,18 @@ impl GLibCBuilder {
 
         LogSystem::log(format!("An image named {} is not found.", self.image_name));
 
-        let docker_file_path = file_manager.create_docker_file()?;
-        let docker_dir = docker_file_path.parent().ok_or(InternalError::Common(
-            "Failed to get the directory of docker file path.".to_string(),
-        ))?;
-        let docker_dir_str = docker_dir.to_str().ok_or(InternalError::Common(
-            "Failed to parse the docker file path.".to_string(),
-        ))?;
-
         LogSystem::log(format!(
             "Building {}. It may take a long time.",
             self.image_name
         ));
 
+        let docker_file_path = file_manager.create_docker_file()?;
+        let docker_dir = docker_file_path.parent().ok_or(InternalError::Common(
+            "Failed to get the directory of docker file path.".to_string(),
+        ))?;
+        let docker_dir_str = docker_dir.try_to_str()?;
         exec_com!(
-            "docker", "build", docker_dir_str, "--tag", &self.image_name;
+            "docker", "build", docker_dir_str, "--tag", &self.image_name, "--progress", "plain";
             "Failed to build an image.".to_string()
         );
 
@@ -218,9 +216,7 @@ impl GLibCBuilder {
 
         file_manager.create_glibc_dir(version)?;
         let dir_path = file_manager.get_glibc_dir(version);
-        let dir_path = dir_path.to_str().ok_or(InternalError::Common(
-            "Detected an invalid directory.".to_string(),
-        ))?;
+        let dir_path = dir_path.try_to_str()?;
 
         exec_com!(
             "docker", "container", "cp",
